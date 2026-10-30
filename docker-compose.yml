@@ -1,0 +1,34 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: vessel_mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: vessel_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: nikonasvrs
+      POSTGRES_DB: vessel_data
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    container_name: vessel_dashboard
+    ports:
+      - "8000:8000"
+    depends_on:
+      - timescaledb
+    restart: unless-stopped
+
+volumes:
+  timescale_data:

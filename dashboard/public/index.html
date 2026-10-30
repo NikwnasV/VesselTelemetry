@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HQ Cloud Command - Fleet Telemetry</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.5.0/remixicon.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <style>
+        body { font-family: 'Work Sans', sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #360427, #3f1a8a, #3a0969); background-size: cover; background-position: center; background-attachment: fixed; color: #fff; min-height: 100vh; box-sizing: border-box; }
+        .glass-panel { background: rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.2); }
+        .dashboard-layout { display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .kpi-card { display: flex; align-items: center; gap: 15px; }
+        .kpi-icon { font-size: 32px; background: linear-gradient(135deg, #6A1B9A, #f05b2e); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .kpi-data h3 { margin: 0; font-size: 14px; color: #ddd; text-transform: uppercase; }
+        .kpi-data p { margin: 5px 0 0 0; font-size: 28px; font-weight: bold; }
+        .content-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        .chart-container { position: relative; height: 350px; display: flex; flex-direction: column; }
+        
+        /* Map Container */
+        .map-container { height: 350px; padding: 0; overflow: hidden; border-radius: 16px; }
+        #map { width: 100%; height: 100%; background: rgba(0,0,0,0.2); }
+        .leaflet-layer, .leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-attribution { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
+
+        /* Custom Dropdown */
+        .custom-dropdown { position: relative; display: inline-block; width: 210px; user-select: none; }
+        .dropdown-selected { background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 8px 15px; border-radius: 8px; font-size: 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; backdrop-filter: blur(10px); }
+        .dropdown-options { display: none; position: absolute; top: 100%; left: 0; right: 0; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; margin-top: 5px; padding: 0; list-style: none; z-index: 1000; }
+        .dropdown-options.show { display: block; }
+        .dropdown-options li { padding: 10px 15px; cursor: pointer; font-size: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        .dropdown-options li:hover { background: rgba(255, 255, 255, 0.25); }
+        @media (max-width: 768px) { .content-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="dashboard-layout">
+        <header class="glass-panel header">
+            <h1><i class="ri-global-line"></i> HQ Cloud Command Center</h1>
+            <span><i class="ri-wifi-line" style="color: #00ffcc;"></i> System Online</span>
+        </header>
+
+        <div class="kpi-grid">
+            <div class="glass-panel kpi-card">
+                <i class="ri-ship-line kpi-icon"></i>
+                <div class="kpi-data"><h3>Active Fog Nodes</h3><p>1 / 5</p></div>
+            </div>
+            <div class="glass-panel kpi-card">
+                <i class="ri-temp-hot-line kpi-icon"></i>
+                <div class="kpi-data"><h3>Current Fleet Avg Temp</h3><p id="avgTemp">-- °C</p></div>
+            </div>
+            <div class="glass-panel kpi-card">
+                <i class="ri-navigation-line kpi-icon"></i>
+                <div class="kpi-data"><h3>Live Coordinates</h3><p id="liveCoords" style="font-size: 16px; margin-top: 10px;">Awaiting GPS...</p></div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="glass-panel chart-container">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h3 style="margin: 0;"><i class="ri-line-chart-line"></i> Live Telemetry (Ship_01)</h3>
+                    <div class="custom-dropdown" id="timeRangeDropdown">
+                        <div class="dropdown-selected" onclick="toggleDropdown()">
+                            <span id="dropdown-text">Τελευταία Ώρα</span><i class="ri-arrow-down-s-line"></i>
+                        </div>
+                        <ul class="dropdown-options" id="dropdown-list">
+                            <li onclick="selectOption('1h', 'Τελευταία Ώρα')">Τελευταία Ώρα</li>
+                            <li onclick="selectOption('1d', 'Τελευταία Ημέρα')">Τελευταία Ημέρα</li>
+                            <li onclick="selectOption('1w', 'Τελευταία Εβδομάδα')">Τελευταία Εβδομάδα</li>
+                        </ul>
+                        <input type="hidden" id="timeRange" value="1h">
+                    </div>
+                </div>
+                <div style="position: relative; flex-grow: 1;"><canvas id="tempChart"></canvas></div>
+            </div>
+            <div class="glass-panel map-container">
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let tempChart;
+        let ws;
+        let map;
+        let shipMarker;
+
+        function initMap() {
+            map = L.map('map').setView([37.942, 23.646], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+            const shipIcon = L.divIcon({
+                html: '<i class="ri-ship-2-fill" style="color: #f05b2e; font-size: 24px; filter: drop-shadow(0 0 5px rgba(0,0,0,0.5));"></i>',
+                className: 'custom-div-icon', iconSize: [24, 24], iconAnchor: [12, 12]
+            });
+            shipMarker = L.marker([37.942, 23.646], {icon: shipIcon}).addTo(map);
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+
+            ws.onmessage = (event) => {
+                const newData = JSON.parse(event.data);
+                if (newData.temperature) {
+                    document.getElementById('avgTemp').innerText = newData.temperature + " °C";
+                    if (tempChart && document.getElementById('timeRange').value === '1h') {
+                        const now = new Date();
+                        const timeLabel = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                        tempChart.data.labels.push(timeLabel);
+                        tempChart.data.datasets[0].data.push(newData.temperature);
+                        if (tempChart.data.labels.length > 100) {
+                            tempChart.data.labels.shift();
+                            tempChart.data.datasets[0].data.shift();
+                        }
+                        tempChart.update();
+                    }
+                }
+                if (newData.lat && newData.lng) {
+                    document.getElementById('liveCoords').innerText = `${newData.lat}, ${newData.lng}`;
+                    const newLatLng = new L.LatLng(newData.lat, newData.lng);
+                    shipMarker.setLatLng(newLatLng);
+                    map.panTo(newLatLng);
+                }
+            };
+            ws.onclose = () => setTimeout(connectWebSocket, 3000);
+        }
+
+        function toggleDropdown() { document.getElementById("dropdown-list").classList.toggle("show"); }
+        function selectOption(value, text) {
+            document.getElementById("dropdown-text").innerText = text;
+            document.getElementById("timeRange").value = value;
+            document.getElementById("dropdown-list").classList.remove("show");
+            if (tempChart) { tempChart.data.labels = []; tempChart.data.datasets[0].data = []; tempChart.update(); }
+            loadData();
+        }
+        window.onclick = function(e) {
+            if (!e.target.closest('.custom-dropdown')) {
+                document.querySelectorAll('.dropdown-options.show').forEach(el => el.classList.remove('show'));
+            }
+        }
+
+        async function loadData() {
+            try {
+                const range = document.getElementById('timeRange').value;
+                const response = await fetch(`/api/telemetry?range=${range}`);
+                const data = await response.json();
+                if (data.values && data.values.length > 0) {
+                    document.getElementById('avgTemp').innerText = data.values[data.values.length - 1] + " °C";
+                }
+                if (tempChart) {
+                    tempChart.data.labels = data.labels;
+                    tempChart.data.datasets[0].data = data.values;
+                    tempChart.update();
+                } else {
+                    const ctx = document.getElementById('tempChart').getContext('2d');
+                    tempChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.labels,
+                            datasets: [{ label: 'Engine Temp (°C)', data: data.values, borderColor: '#f05b2e', backgroundColor: 'rgba(240, 91, 46, 0.1)', borderWidth: 2, fill: true, tension: 0.4, pointBackgroundColor: '#AB47BC' }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { color: '#ccc' }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { ticks: { color: '#ccc' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+                    });
+                }
+            } catch (error) { console.error(error); }
+        }
+        
+        window.onload = () => { initMap(); loadData(); connectWebSocket(); };
+    </script>
+</body>
+</html> 

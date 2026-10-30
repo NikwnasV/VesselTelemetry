@@ -1,0 +1,6 @@
+venv/
+esp32-emulation/venv/
+dashboard/target/
+dashboard-python/
+__pycache__/
+*.pyc
